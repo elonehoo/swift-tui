@@ -3,6 +3,7 @@ import SwiftTUICore
 @MainActor
 package func registerTextInputBinding(
   _ binding: Binding<String>,
+  selection externalSelection: Binding<Range<Int>>? = nil,
   value: Binding<TextInputValue>,
   traits: TextInputTraits,
   layout: @escaping @MainActor (TextInputValue) -> TextInputLayoutMap? = { _ in nil },
@@ -27,12 +28,14 @@ package func registerTextInputBinding(
           traits.isMultiline
             || !edit.text.contains(where: \.isNewline)
         else { return .invalidValue }
-        let current = value.wrappedValue.synchronized(with: binding.wrappedValue)
+        let current = value.wrappedValue.synchronized(
+          with: binding.wrappedValue, selection: externalSelection?.wrappedValue)
         if action.kind == .selectText {
           guard current.text == edit.text else { return .invalidValue }
           guard current.selection != selection else { return .unchanged }
           return applyTextInputCommand(
-            .setSelection(selection), binding: binding, value: value, traits: traits,
+            .setSelection(selection), binding: binding, selection: externalSelection, value: value,
+            traits: traits,
             layout: layout,
             clipboardWriteAction: context.environmentValues.clipboardWriteAction,
             clipboardReadAction: context.environmentValues.clipboardReadAction)
@@ -44,12 +47,14 @@ package func registerTextInputBinding(
           replacing.selection = .init(anchor: .init(0), head: .init(current.text.count))
           value.wrappedValue = replacing
           _ = applyTextInputCommand(
-            .insertText(edit.text), binding: binding, value: value, traits: traits, layout: layout,
+            .insertText(edit.text), binding: binding, selection: externalSelection, value: value,
+            traits: traits, layout: layout,
             clipboardWriteAction: context.environmentValues.clipboardWriteAction,
             clipboardReadAction: context.environmentValues.clipboardReadAction)
         }
         _ = applyTextInputCommand(
-          .setSelection(selection), binding: binding, value: value, traits: traits, layout: layout,
+          .setSelection(selection), binding: binding, selection: externalSelection, value: value,
+          traits: traits, layout: layout,
           clipboardWriteAction: context.environmentValues.clipboardWriteAction,
           clipboardReadAction: context.environmentValues.clipboardReadAction)
         return .changed
@@ -58,11 +63,13 @@ package func registerTextInputBinding(
       guard case .setValue(.text(let next)) = action else { return .unsupported }
       guard traits.isMultiline || !next.contains(where: \.isNewline) else { return .invalidValue }
       guard binding.wrappedValue != next else { return .unchanged }
-      var selected = value.wrappedValue.synchronized(with: binding.wrappedValue)
+      var selected = value.wrappedValue.synchronized(
+        with: binding.wrappedValue, selection: externalSelection?.wrappedValue)
       selected.selection = .init(anchor: .init(0), head: .init(selected.text.count))
       value.wrappedValue = selected
       return applyTextInputCommand(
-        .insertText(next), binding: binding, value: value, traits: traits, layout: layout,
+        .insertText(next), binding: binding, selection: externalSelection, value: value,
+        traits: traits, layout: layout,
         clipboardWriteAction: context.environmentValues.clipboardWriteAction,
         clipboardReadAction: context.environmentValues.clipboardReadAction) ? .changed : .unchanged
     }, handler: { false })
@@ -76,6 +83,7 @@ package func registerTextInputBinding(
     let handled = applyTextInputCommand(
       command,
       binding: binding,
+      selection: externalSelection,
       value: value,
       traits: traits,
       layout: layout,
@@ -116,6 +124,7 @@ package func registerTextInputBinding(
       applyTextInputCommand(
         .insertText(content),
         binding: binding,
+        selection: externalSelection,
         value: value,
         traits: traits,
         layout: layout,
@@ -129,13 +138,15 @@ package func registerTextInputBinding(
 private func applyTextInputCommand(
   _ command: TextInputCommand,
   binding: Binding<String>,
+  selection: Binding<Range<Int>>?,
   value: Binding<TextInputValue>,
   traits: TextInputTraits,
   layout: @escaping @MainActor (TextInputValue) -> TextInputLayoutMap?,
   clipboardWriteAction: ClipboardWriteAction,
   clipboardReadAction: ClipboardReadAction
 ) -> Bool {
-  let currentValue = value.wrappedValue.synchronized(with: binding.wrappedValue)
+  let currentValue = value.wrappedValue.synchronized(
+    with: binding.wrappedValue, selection: selection?.wrappedValue)
   let resolvedCommand: TextInputCommand
   if command == .pasteClipboard {
     guard let clipboardText = clipboardReadAction() else {
@@ -177,6 +188,12 @@ private func applyTextInputCommand(
   }
 
   value.wrappedValue = mutation.value
+  // The selection is written before the text, so a text setter that rewrites
+  // the text can also place the caret by writing the selection itself.
+  let offsets = mutation.value.selection.range.offsets
+  if let selection, selection.wrappedValue != offsets {
+    selection.wrappedValue = offsets
+  }
   if mutation.shouldWriteBinding {
     binding.wrappedValue = mutation.value.text
   }

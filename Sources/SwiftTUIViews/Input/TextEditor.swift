@@ -11,10 +11,25 @@ public struct TextEditor: PrimitiveView, IterativeResolvableView {
   // reference nor report it as unsupported state.
   @State(dormantPolicy: .transient) private var measuredContentWidth =
     TextEditorMeasuredContentWidth()
+  private let selection: Binding<Range<Int>>?
   private let authoringScope: AuthoringContext?
 
   public init(text: Binding<String>) {
     self.text = text
+    selection = nil
+    authoringScope = currentAuthoringContext()
+  }
+
+  /// Creates an editor whose caret and selection the caller can read and set.
+  ///
+  /// `selection` holds grapheme-cluster offsets into `text`; an empty range is
+  /// the caret. The editor writes it after every edit or caret move, before it
+  /// writes `text`, so a `text` setter that rewrites the text can also place
+  /// the caret. Setting `selection` moves the caret; changing `text` without
+  /// changing `selection` puts the caret at the end, as `init(text:)` does.
+  public init(text: Binding<String>, selection: Binding<Range<Int>>) {
+    self.text = text
+    self.selection = selection
     authoringScope = currentAuthoringContext()
   }
 
@@ -43,7 +58,8 @@ extension TextEditor {
       isEnabled: isEnabled,
       isFocused: isFocused && showsFocusEffect
     )
-    let synchronizedValue = textInputValue.synchronized(with: text.wrappedValue)
+    let synchronizedValue = textInputValue.synchronized(
+      with: text.wrappedValue, selection: selection?.wrappedValue)
 
     // The movement layout map must wrap at the same width the inner `Text`
     // actually renders at, so Up/Down move the caret by VISUAL line. That width
@@ -55,6 +71,7 @@ extension TextEditor {
     let measuredContentWidth = measuredContentWidth
     registerTextInputBinding(
       text,
+      selection: selection,
       value: $textInputValue,
       traits: .multiline,
       layout: { value in

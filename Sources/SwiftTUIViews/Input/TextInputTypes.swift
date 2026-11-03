@@ -34,6 +34,11 @@ package struct TextRange: Equatable, Hashable, Sendable {
   package var isEmpty: Bool {
     lowerBound == upperBound
   }
+
+  /// The range as grapheme-cluster offsets, the form public selection bindings use.
+  package var offsets: Range<Int> {
+    lowerBound.rawValue..<upperBound.rawValue
+  }
 }
 
 /// A text selection stored as anchor/head so selection direction is preserved.
@@ -81,7 +86,29 @@ package struct TextInputValue: Equatable, Sendable {
     self.preferredVisualColumn = preferredVisualColumn
   }
 
-  package func synchronized(with externalText: String) -> TextInputValue {
+  /// Brings the control's editing state up to date with its bindings.
+  ///
+  /// The control writes `externalSelection` after every edit, so a value that
+  /// differs from the control's own selection is one the caller set, and it
+  /// places the caret, clamped to `externalText`.
+  package func synchronized(
+    with externalText: String,
+    selection externalSelection: Range<Int>? = nil
+  ) -> TextInputValue {
+    if let externalSelection, externalSelection != selection.range.offsets {
+      let count = externalText.count
+      let selection = TextSelection(
+        anchor: TextOffset(min(externalSelection.lowerBound, count)),
+        head: TextOffset(min(externalSelection.upperBound, count))
+      )
+      guard externalText == text else {
+        return TextInputValue(text: externalText, selection: selection)
+      }
+      var copy = self
+      copy.selection = selection
+      copy.preferredVisualColumn = nil
+      return copy
+    }
     guard externalText != text else {
       return clampingSelection()
     }

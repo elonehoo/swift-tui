@@ -8,6 +8,14 @@ may make source-breaking API adjustments. Pin with `.upToNextMinor`.
 
 ## [Unreleased]
 
+### Added
+
+- `TextEditor(text:selection:)` lets the caller read and set the caret and
+  selection as grapheme-cluster offsets. The editor writes the selection
+  before the text, so a text setter that rewrites the text, for example to
+  delete a token as one unit, can also place the caret. Changing only the
+  text still puts the caret at the end.
+
 ## [0.20.1] - 2026-11-01
 
 ### Fixed
